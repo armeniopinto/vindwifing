@@ -1,0 +1,11 @@
+bin/
+include/
+Include/
+lib/
+lib64/
+Lib/
+Scripts/
+share/
+config.json
+pyvenv.cfg
+pymakr.conf

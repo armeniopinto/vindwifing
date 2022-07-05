@@ -1,0 +1,151 @@
+'''Start-up things like WiFi and stuff.'''
+
+__author__ = "Arménio Pinto"
+__email__ = "github.com/armeniopinto"
+__copyright__ = "Copyright (C) 2022 by Arménio Pinto"
+__license__ = "MIT License"
+
+import utime
+from machine import SoftUART, Pin
+
+import logging
+logger = logging.getLogger(__name__)
+
+from system import System
+from homie import Network, Device, DeviceState, Node, Property
+
+
+class VindriktningReader:
+	'''A client for the VINDRIKTNING sensor.'''
+
+	# The number of samples in a sensor sampling cycle.
+	__CYCLE_SAMPLES = 7
+
+	# The amount of time after which a sampling cycle is considered finished.
+	__CYCLE_TIMEOUT = 4
+
+
+	def __init__(self, system:System, property:Property) -> None:
+		self.__system = system
+		self.__property = property
+		self.__uart = SoftUART(Pin(5), Pin(4), baudrate=9600, timeout=0)
+		self.__stop_requested = False
+		self.__buffer = list()
+
+
+	def start(self) -> None:
+		'''Starts reading data from the sensor.'''
+		logger.info("Sensor reader started.")
+		while not self.__stop_requested:
+			try:
+				data = self.__uart.read()
+				if data:
+					self.__handle_sensor_data(data)
+				self.__publish_if_cycle_ended()
+			except Exception as e:
+				logger.warning(f"Error handling sensor data: {str(e)}.")
+			finally:
+				utime.sleep_ms(500)
+		logger.info("Sensor reader stopped.")
+
+
+	def __handle_sensor_data(self, data:bytes) -> None:
+		'''Handles data events from the sensor.'''
+		timestamp = self.__system.time.time()
+		try:
+			value = self.__decode_sensor_data(data)
+			if value >=0 and value <= 1000:
+				sample = {
+					"timestamp": timestamp,
+					"pm2_5": value
+				}
+				self.__buffer.append(sample)
+				logger.debug(f"Read data: {sample}.")
+		except ValueError as ve:
+			logger.info(f"Error decoding sensor data: {str(ve)}.")
+
+
+	def __decode_sensor_data(self, data:bytes) -> None:
+		'''Decodes a bunch of data from the sensor. Assumes 1 or more complete
+		frames of data in the parameter. Returns the average of the values.
+		:param data: the data received from the sensor.
+		:returns: the decoded value.
+		'''
+		# From PM1006_LED_PARTICLE_SENSOR_MODULE_SPECIFICATIONS:
+		# "Read measures result of particles:
+		# Send: 11 02 0B 01 E1
+		# Response: 16 11 0B DF1 DF4 DF5 DF8 DF9 DF12 DF13 DF14 DF15 DF16[CS]
+		# Note: PM2.5(μg/m³)= DF3*256+DF4"
+		# Additional comments: the second octet is the length of the data.
+		# Other DFs are missing from the example above :), poor documentation.
+		nframes = len(data) / 20
+		sum_values = 0
+		for i in range(nframes):
+			offset = i * 20
+			type = data[offset]
+			if type != 0x16:
+				raise ValueError(f"Invalid data frame type, expecting 0x16, received {hex(type)}")
+			data_length = data[offset + 1]
+			if data_length != 17:
+				raise ValueError(f"Invalid data frame length, expecting 17 bytes, received {data_length} bytes")
+			df3 = data[offset + 5]
+			df4 = data[offset + 6]
+			value = df3 * 256 + df4
+			sum_values += value
+
+		return int(sum_values / nframes)
+
+
+	def __publish_if_cycle_ended(self) -> None:
+		'''Publishes the sampled values if the sensor sampling cycled has ended. A cycle has ended when
+		CYCLE_SAMPLES have been read or no more samples were read after CYCLE_TIMEOUT seconds.
+		'''
+		buffer = self.__buffer
+		if buffer:
+			nsamples = len(buffer)
+			last_sample_time = buffer[-1]["timestamp"]
+			current_time = self.__system.time.time()
+			timedout = (current_time - last_sample_time) > self.__CYCLE_TIMEOUT
+			if nsamples >= self.__CYCLE_SAMPLES or timedout:
+				value_sum = 0
+				for sample in buffer:
+					value_sum += sample["pm2_5"]
+				value = round(value_sum / nsamples, 1)
+				datetime = self.__system.time.iso_time(last_sample_time)
+				logger.info(f"Publishing {value} ug/m3 at {datetime}.")
+				self.__property.set_value(str(value))
+				buffer.clear()
+
+
+	def stop(self):
+		'''Stops reading data from the sensor.'''
+		self.__stop_requested = True
+		self.__uart.deinit()
+
+
+def main():
+	system = System()
+	broker_address = system.config.get("mqtt.broker.host_address")
+	broker_port = system.config.get("mqtt.broker.port")
+	if not broker_port:
+		broker_port = 1883
+
+	network = Network(system.device_id, broker_address, broker_port)
+	device = Device(network, system.device_id.lower(), system.device_id)
+	node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
+	property = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
+
+	node.add_property(property)	
+	device.add_node(node)
+	device.state = DeviceState.INIT
+	device.state = DeviceState.READY
+
+	vind_reader = VindriktningReader(system, property)
+	vind_reader.start()
+
+
+if __name__ == "__main__":
+	try:
+		main()
+	except KeyboardInterrupt:
+		logger.info("Exiting...")
