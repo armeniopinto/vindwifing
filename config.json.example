@@ -1,0 +1,23 @@
+{
+	"network": {
+		"ap": {
+			"key": "vindwifing"
+		},
+		"station": {
+			"ssid": "<FIXME",
+			"key": "<FIXME>"
+		},
+		"ntp": {
+			"sync_period": 300
+		}
+	},
+	"mqtt": {
+		"broker": {
+			"host_address": "<FIXME>"
+		}
+	},
+	"uart": {
+		"tx_pin": <FIXME>,
+		"rx_pin": <FIXME>
+	}
+}
