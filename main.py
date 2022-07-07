@@ -25,17 +25,19 @@ class VindriktningReader:
 	__CYCLE_TIMEOUT = 4
 
 
-	def __init__(self, system:System, property:Property) -> None:
+	def __init__(self, system:System, tx_pin:int, rx_pin:int, property:Property) -> None:
 		self.__system = system
 		self.__property = property
-		self.__uart = SoftUART(Pin(5), Pin(4), baudrate=9600, timeout=0)
+		# https://github.com/micropython/micropython/pull/7784
+		self.__rx_pin = rx_pin
+		self.__uart = SoftUART(Pin(tx_pin), Pin(rx_pin), baudrate=9600, timeout=0)
 		self.__stop_requested = False
-		self.__buffer = list()
+		self.__buffer = []
 
 
 	def start(self) -> None:
 		'''Starts reading data from the sensor.'''
-		logger.info("Sensor reader started.")
+		logger.info(f"Sensor reader started on pin {self.__rx_pin}.")
 		while not self.__stop_requested:
 			try:
 				data = self.__uart.read()
@@ -140,7 +142,9 @@ def main():
 	device.state = DeviceState.INIT
 	device.state = DeviceState.READY
 
-	vind_reader = VindriktningReader(system, property)
+	tx_pin = system.config.get("uart.tx_pin")
+	rx_pin = system.config.get("uart.rx_pin")
+	vind_reader = VindriktningReader(system, tx_pin, rx_pin, property)
 	vind_reader.start()
 
 
