@@ -25,9 +25,9 @@ class VindriktningReader:
 	__CYCLE_TIMEOUT = 4
 
 
-	def __init__(self, system:System, tx_pin:int, rx_pin:int, property:Property) -> None:
+	def __init__(self, system:System, tx_pin:int, rx_pin:int, prop:Property) -> None:
 		self.__system = system
-		self.__property = property
+		self.__property = prop
 		# https://github.com/micropython/micropython/pull/7784
 		self.__rx_pin = rx_pin
 		self.__uart = SoftUART(Pin(tx_pin), Pin(rx_pin), baudrate=9600, timeout=0)
@@ -84,9 +84,9 @@ class VindriktningReader:
 		sum_values = 0
 		for i in range(nframes):
 			offset = i * 20
-			type = data[offset]
-			if type != 0x16:
-				raise ValueError(f"Invalid data frame type, expecting 0x16, received {hex(type)}")
+			frame_type = data[offset]
+			if frame_type != 0x16:
+				raise ValueError(f"Invalid data frame type, expecting 0x16, received {hex(frame_type)}")
 			data_length = data[offset + 1]
 			if data_length != 17:
 				raise ValueError(f"Invalid data frame length, expecting 17 bytes, received {data_length} bytes")
@@ -135,16 +135,16 @@ def main():
 	network = Network(system.device_id, broker_address, broker_port)
 	device = Device(network, system.device_id.lower(), system.device_id)
 	node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
-	property = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
+	prop = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
 
-	node.add_property(property)	
+	node.add_property(prop)	
 	device.add_node(node)
 	device.state = DeviceState.INIT
 	device.state = DeviceState.READY
 
 	tx_pin = system.config.get("uart.tx_pin")
 	rx_pin = system.config.get("uart.rx_pin")
-	vind_reader = VindriktningReader(system, tx_pin, rx_pin, property)
+	vind_reader = VindriktningReader(system, tx_pin, rx_pin, prop)
 	vind_reader.start()
 
 
