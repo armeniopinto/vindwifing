@@ -118,10 +118,10 @@ class DeviceState:
 class Device(NamedHomieThing):
 	'''https://homieiot.github.io/specification/#devices'''
 
-	def __init__(self, parent:HomieThing, thing_id:str, name:str, extensions:list[str]) -> None:
+	def __init__(self, parent:HomieThing, thing_id:str, name:str, extensions:list[str]=None) -> None:
 		super().__init__(parent, thing_id, name)
 		self.__nodes = []
-		self.__extensions = extensions if extensions else list()
+		self.__extensions = extensions if extensions else []
 
 	@property
 	def nodes(self) -> list[Node]:
