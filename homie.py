@@ -1,5 +1,7 @@
 '''A minimalistic Micropython implementation of the Homie convention (https://homieiot.github.io).'''
 
+from __future__ import annotations
+
 __author__ = "Arménio Pinto"
 __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
@@ -14,10 +16,10 @@ logger = logging.getLogger(__name__)
 class HomieThing:
 	'''A generic Homie entity.'''
 
-	def __init__(self, parent:"HomieThing", thing_id:str, mqtt_broker:MQTTClient=None) -> None:
+	def __init__(self, parent:HomieThing, thing_id:str, mqtt_broker:MQTTClient=None) -> None:
 		self.__thing_id = thing_id
 		self.parent = parent
-		self.__mqtt_broker = mqtt_broker if mqtt_broker else parent.__mqtt_broker
+		self.__mptt_broker = mqtt_broker if mqtt_broker else parent.__mptt_broker
 
 	@property
 	def thing_id(self) -> str:
@@ -28,18 +30,18 @@ class HomieThing:
 		return self.__parent
 
 	@parent.setter
-	def parent(self, parent:"HomieThing") -> None:
+	def parent(self, parent:HomieThing) -> None:
 		self.__parent = parent
 		self.__topic_name = f"{parent.__topic_name}/{self.__thing_id}" if parent else self.__thing_id
 
 	def set_attribute(self, name:str, value:str) -> None:
 		attribute_topic_name = f"{self.__topic_name}/{name}"
 		logger.debug(f"{attribute_topic_name} = {value}")
-		self.__mqtt_broker.publish(attribute_topic_name, value, retain=True, qos=1)
+		self.__mptt_broker.publish(attribute_topic_name, value, retain=True, qos=1)
 
 	def set_value(self, value:str) -> None:
 		logger.debug(f"{self.__topic_name} = {value}")
-		self.__mqtt_broker.publish(self.__topic_name, value, retain=True, qos=1)
+		self.__mptt_broker.publish(self.__topic_name, value, retain=True, qos=1)
 
 	def __str__(self) -> str:
 		return self.__thing_id
@@ -90,16 +92,16 @@ class Node(NamedHomieThing):
 	def properties(self) -> list[Property]:
 		return self.__properties
 
-	def add_property(self, property:Property) -> None:
-		self.__properties.append(property)
+	def add_property(self, prop:Property) -> None:
+		self.__properties.append(prop)
 
 	def init(self) -> None:
 		'''https://homieiot.github.io/specification/#device-lifecycle'''
 		self.set_attribute("$name", self.__name)
 		self.set_attribute("$type", self.__thing_type)
 		self.set_attribute("$properties", ",".join(map(str, self.__properties)))
-		for property in self.__properties:
-			property.init()
+		for prop in self.__properties:
+			prop.init()
 
 
 class DeviceState:
@@ -116,10 +118,10 @@ class DeviceState:
 class Device(NamedHomieThing):
 	'''https://homieiot.github.io/specification/#devices'''
 
-	def __init__(self, parent:HomieThing, thing_id:str, name:str, extensions:list[str]=[]) -> None:
+	def __init__(self, parent:HomieThing, thing_id:str, name:str, extensions:list[str]) -> None:
 		super().__init__(parent, thing_id, name)
 		self.__nodes = []
-		self.__extensions = extensions
+		self.__extensions = extensions if extensions else list()
 
 	@property
 	def nodes(self) -> list[Node]:
