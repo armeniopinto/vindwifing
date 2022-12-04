@@ -15,6 +15,51 @@ from system import System
 from homie import Network, Device, DeviceState, Node, Property
 
 
+class Publisher:
+	'''A publisher for the sensor values.'''
+
+	def __init__(self, system:System) -> None:
+		self.__device_id = system.device_id
+		self.__broker_address = system.config.get("mqtt.broker.host_address")
+		self.__broker_port = system.config.get("mqtt.broker.port")
+		if not self.__broker_port:
+			self.__broker_port = 1883
+		try:
+			self.__connect()
+		except ConnectionError as ce:
+			logger.warn(ce)
+
+
+	def __connect(self) -> None:
+		''':raises ConnectionError: if an error occurs while connecting to the message broker.'''
+		self.__property = None
+		try:
+			network = Network(self.__device_id, self.__broker_address, self.__broker_port)
+			device = Device(network, self.__device_id.lower(), self.__device_id)
+			node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
+			self.__property = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
+			node.add_property(self.__property)
+			device.add_node(node)
+			device.state = DeviceState.INIT
+			device.state = DeviceState.READY
+		except Exception as e:
+			raise ConnectionError("Error connecting to message broker") from e
+
+
+	def publish(self, message:str) -> None:
+		''':raises ConnectionError: if an error occurs while connecting to the message broker.'''
+		if not self.__property:
+			try:
+				self.__connect()
+			except ConnectionError as ce:
+				logger.warn(ce)
+		if self.__property:
+			try:
+				self.__property.set_value(message)
+			except Exception as e:
+				raise ConnectionError("Error publishing the value") from e
+
+
 class VindriktningReader:
 	'''A client for the VINDRIKTNING sensor.'''
 
@@ -25,18 +70,20 @@ class VindriktningReader:
 	__CYCLE_TIMEOUT = 4
 
 
-	def __init__(self, system:System, tx_pin:int, rx_pin:int, prop:Property) -> None:
+	def __init__(self, system:System, publisher:Publisher) -> None:
 		self.__system = system
-		self.__property = prop
+		self.__publisher = publisher
+
 		# https://github.com/micropython/micropython/pull/7784
-		self.__rx_pin = rx_pin
-		self.__uart = SoftUART(Pin(tx_pin), Pin(rx_pin), baudrate=9600, timeout=0)
+		tx_pin = system.config.get("uart.tx_pin")
+		self.__rx_pin = system.config.get("uart.rx_pin")
+		self.__uart = SoftUART(Pin(tx_pin), Pin(self.__rx_pin), baudrate=9600, timeout=0)
+
 		self.__stop_requested = False
 		self.__buffer = []
 
 
 	def start(self) -> None:
-		'''Starts reading data from the sensor.'''
 		logger.info(f"Sensor reader started on pin {self.__rx_pin}.")
 		while not self.__stop_requested:
 			try:
@@ -67,7 +114,7 @@ class VindriktningReader:
 			logger.info(f"Error decoding sensor data: {str(ve)}.")
 
 
-	def __decode_sensor_data(self, data:bytes) -> None:
+	def __decode_sensor_data(self, data:bytes) -> int:
 		'''Decodes a bunch of data from the sensor. Assumes 1 or more complete
 		frames of data in the parameter. Returns the average of the values.
 		:param data: the data received from the sensor.
@@ -80,7 +127,7 @@ class VindriktningReader:
 		# Note: PM2.5(μg/m³)= DF3*256+DF4"
 		# Additional comments: the second octet is the length of the data.
 		# Other DFs are missing from the example above :), poor documentation.
-		nframes = len(data) / 20
+		nframes = int(len(data) / 20)
 		sum_values = 0
 		for i in range(nframes):
 			offset = i * 20
@@ -115,7 +162,7 @@ class VindriktningReader:
 				value = round(value_sum / nsamples, 1)
 				datetime = self.__system.time.iso_time(last_sample_time)
 				logger.info(f"Publishing {value} ug/m3 at {datetime}.")
-				self.__property.set_value(str(value))
+				self.__publisher.publish(str(value))
 				buffer.clear()
 
 
@@ -127,24 +174,8 @@ class VindriktningReader:
 
 def main():
 	system = System()
-	broker_address = system.config.get("mqtt.broker.host_address")
-	broker_port = system.config.get("mqtt.broker.port")
-	if not broker_port:
-		broker_port = 1883
-
-	network = Network(system.device_id, broker_address, broker_port)
-	device = Device(network, system.device_id.lower(), system.device_id)
-	node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
-	prop = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
-
-	node.add_property(prop)	
-	device.add_node(node)
-	device.state = DeviceState.INIT
-	device.state = DeviceState.READY
-
-	tx_pin = system.config.get("uart.tx_pin")
-	rx_pin = system.config.get("uart.rx_pin")
-	vind_reader = VindriktningReader(system, tx_pin, rx_pin, prop)
+	publisher = Publisher(system)
+	vind_reader = VindriktningReader(system, publisher)
 	vind_reader.start()
 
 
