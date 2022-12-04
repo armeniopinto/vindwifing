@@ -1,7 +1,5 @@
 '''A minimalistic Micropython implementation of the Homie convention (https://homieiot.github.io).'''
 
-from __future__ import annotations
-
 __author__ = "Arménio Pinto"
 __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
@@ -16,10 +14,10 @@ logger = logging.getLogger(__name__)
 class HomieThing:
 	'''A generic Homie entity.'''
 
-	def __init__(self, parent:HomieThing, thing_id:str, mqtt_broker:MQTTClient=None) -> None:
+	def __init__(self, parent:"HomieThing", thing_id:str, broker:MQTTClient=None) -> None:
 		self.__thing_id = thing_id
 		self.parent = parent
-		self.__mptt_broker = mqtt_broker if mqtt_broker else parent.__mptt_broker
+		self.__broker = broker if broker else parent.__broker
 
 	@property
 	def thing_id(self) -> str:
@@ -30,18 +28,18 @@ class HomieThing:
 		return self.__parent
 
 	@parent.setter
-	def parent(self, parent:HomieThing) -> None:
+	def parent(self, parent:"HomieThing") -> None:
 		self.__parent = parent
 		self.__topic_name = f"{parent.__topic_name}/{self.__thing_id}" if parent else self.__thing_id
 
 	def set_attribute(self, name:str, value:str) -> None:
 		attribute_topic_name = f"{self.__topic_name}/{name}"
 		logger.debug(f"{attribute_topic_name} = {value}")
-		self.__mptt_broker.publish(attribute_topic_name, value, retain=True, qos=1)
+		self.__broker.publish(attribute_topic_name, value, retain=True, qos=1)
 
 	def set_value(self, value:str) -> None:
 		logger.debug(f"{self.__topic_name} = {value}")
-		self.__mptt_broker.publish(self.__topic_name, value, retain=True, qos=1)
+		self.__broker.publish(self.__topic_name, value, retain=True, qos=1)
 
 	def __str__(self) -> str:
 		return self.__thing_id
@@ -131,7 +129,7 @@ class Device(NamedHomieThing):
 		self.__nodes.append(node)
 
 	@property
-	def state(self) -> DeviceState:
+	def state(self) -> str:
 		return self.__state
 
 	@state.setter
@@ -159,12 +157,12 @@ class Device(NamedHomieThing):
 
 class Network(HomieThing):
 
-	def __init__(self, mqtt_client_id:str, mqtt_broker_address:str, mqtt_broker_port:int) -> None:
-		mqtt_broker = MQTTClient(mqtt_client_id, mqtt_broker_address, mqtt_broker_port)
-		logger.debug(f"Trying to connect to MQTT broker at '{mqtt_broker_address}:{mqtt_broker_port}'...")
-		mqtt_broker.connect()
-		logger.info(f"Connected to MQTT broker '{mqtt_broker_address}:{mqtt_broker_port}'.")
-		super().__init__(None, "homie", mqtt_broker)
+	def __init__(self, mqtt_client_id:str, broker_address:str, broker_port:int) -> None:
+		broker = MQTTClient(mqtt_client_id, broker_address, broker_port)
+		logger.debug(f"Connecting to message broker at '{broker_address}:{broker_port}'...")
+		broker.connect()
+		logger.info(f"Connected to message broker '{broker_address}:{broker_port}'.")
+		super().__init__(None, "homie", broker)
 		self.__devices = []
 
 	@property
