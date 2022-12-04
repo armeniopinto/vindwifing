@@ -5,9 +5,10 @@ __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
 __license__ = "MIT License"
 
-#import gc
-#gc.enable()
-import network, utime, ntptime, json
+import network
+import utime
+import ntptime
+import json
 from network import WLAN
 
 import logging
@@ -24,20 +25,20 @@ class __Config:
 		try:
 			config_file = open(__CONFIG_FILE_PATH, "r")
 		except OSError as ose:
-			logger.error(f"Unable to open configuration file '{__CONFIG_FILE_PATH}'.")
+			logger.error(f"Unable to open configuration file '{__CONFIG_FILE_PATH}': {str(ose)}")
 		if config_file:
 			with config_file:
 				self.__config = json.load(config_file)
 			logger.info("Configuration loaded.")
 
-	def has(self, name:str) -> None:
+	def has(self, name:str) -> bool:
 		"""Check if a given property is configured.
 		:param name: the property's name.
 		:returns: True if the property exists, otherwise False.
 		"""
-		return self.get(name) != None
+		return self.get(name) is not None
 
-	def get(self, name:str) -> any:
+	def get(self, name:str):
 		'''Returns a property's value.
 		:param: the property's name.
 		:returns: the property's value or None, if it wasn't found.
@@ -133,7 +134,7 @@ class __WLAN:
 				if self.__wlan_if.isconnected():
 					connected = True
 				else:
-					logger.info(f"Trying to connect to '{self.__ssid}'...")
+					logger.info(f"Connecting to '{self.__ssid}'...")
 			ifcfg = self.__wlan_if.ifconfig()
 			logger.info(f"Connected to '{self.__ssid}': IP={ifcfg[0]} GW={ifcfg[2]} DNS={ifcfg[3]}")
 
@@ -145,15 +146,15 @@ class __WLAN:
 					self.__wlan_if.disconnect()
 					logger.info(f"Disconnected from {self.__ssid}.")
 			self.__wlan_if.active(False)
-			self.info(f"{self.__if_name} interface is now DOWN.")
+			logger.info(f"{self.__if_name} interface is now DOWN.")
 		else:
-			self.debug(f"{self.__if_name} interface was already DOWN.")
+			logger.debug(f"{self.__if_name} interface was already DOWN.")
 
 
 class __Network:
 	'''An agent for network functionality.'''
 
-	def build_ap_essid() -> None:
+	def build_ap_essid() -> str:
 		'''Builds a unique ESSID for the AP.'''
 		ap_if = WLAN(network.AP_IF)
 		mac = list(ap_if.config("mac"))
@@ -218,9 +219,3 @@ class System:
 	def network(self) -> __Network:
 		'''Returns the network agent.'''
 		return self.__network
-
-	#def gc_collect() -> None:
-	#	gc.collect()
-	#	gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())	
-	#	logger.debug("Heap memory garbage collected.")
-	#	logger.debug(f"Using {gc.mem_alloc()} bytes of heap memory, with {gc.mem_free()} bytes free.")
