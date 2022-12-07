@@ -5,31 +5,33 @@ __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
 __license__ = "MIT License"
 
+import logging
+logger = logging.getLogger(__name__)
+
 import network
 import utime
 import ntptime
 import json
 from network import WLAN
 
-import logging
-logger = logging.getLogger(__name__)
-
-
-__CONFIG_FILE_PATH = "config.json"
 
 class __Config:
-	"""A wrapper to manage loading and CRUD of configuration."""
+	"""A wrapper to manage loading and accessing configuration."""
+
+	__CONFIG_FILE_PATH = "config.json"
+
 
 	def __init__(self) -> None:
 		config_file = None
 		try:
-			config_file = open(__CONFIG_FILE_PATH, "r")
+			config_file = open(self.__CONFIG_FILE_PATH, "r", encoding="utf-8")
 		except OSError as ose:
-			logger.error(f"Unable to open configuration file '{__CONFIG_FILE_PATH}': {str(ose)}")
+			logger.error(f"Unable to open configuration file '{self.__CONFIG_FILE_PATH}': {str(ose)}")
 		if config_file:
 			with config_file:
 				self.__config = json.load(config_file)
 			logger.info("Configuration loaded.")
+
 
 	def has(self, name:str) -> bool:
 		"""Check if a given property is configured.
@@ -38,7 +40,8 @@ class __Config:
 		"""
 		return self.get(name) is not None
 
-	def get(self, name:str):
+
+	def get(self, name:str, default:str=None):
 		'''Returns a property's value.
 		:param: the property's name.
 		:returns: the property's value or None, if it wasn't found.
@@ -48,7 +51,7 @@ class __Config:
 			if token in value:
 				value = value[token]
 			else:
-				return None
+				value = default
 		return value
 
 
@@ -58,15 +61,17 @@ class __Time:
 	# The number of retries to sync with the NTP server.
 	__NTP_RETRIES = 5
 
-	def __init__(self, config:__Config, online:bool=True):
+
+	def __init__(self, config:__Config):
 		self.__NTP_SYNC_PERIOD = config.get("network.ntp.sync_period")
 		self.__last_ntp_sync = None
+
 
 	def sync(self) -> None:
 		'''Sets the RTC with date/time from an NTP server.
 		:returns: the time retrieved from the NTP server, or the current RTC time if it failed.
 		'''
-		for i in range(self.__NTP_RETRIES):
+		for _ in range(self.__NTP_RETRIES):
 			try:
 				ntptime.settime()
 				logger.info(f"RTC time set to '{self.iso_time()}'.")
@@ -76,6 +81,7 @@ class __Time:
 				utime.sleep_ms(1000)
 		logger.warning("Unable to get NTP time, RTC will have an arbitrary reference.")
 		return utime.time()
+
 
 	def time(self) -> int:
 		'''Returns the number of seconds since the Epoch (2000-01-01 00:00:00 UTC).
@@ -87,6 +93,7 @@ class __Time:
 			return self.__last_ntp_sync
 		else:
 			return utime.time()
+
 
 	def iso_time(self, datetime:int=None) -> str:
 		'''Returns the time in ISO 8601 format. If no argument is passed, uses the RTC time.
@@ -107,9 +114,11 @@ class __WLAN:
 		self.__ssid = ssid
 		self.__key = key
 
+
 	@property
 	def ssid(self) -> str:
 		return self.__ssid
+
 
 	def start(self) -> None:
 		'''Starts the WLAN interface, connecting to the AP if it's a station.'''
@@ -134,9 +143,10 @@ class __WLAN:
 				if self.__wlan_if.isconnected():
 					connected = True
 				else:
-					logger.info(f"Connecting to '{self.__ssid}'...")
+					logger.debug(f"Connecting to '{self.__ssid}'...")
 			ifcfg = self.__wlan_if.ifconfig()
 			logger.info(f"Connected to '{self.__ssid}': IP={ifcfg[0]} GW={ifcfg[2]} DNS={ifcfg[3]}")
+
 
 	def stop(self) -> None:
 		'''Stops the WLAN interface, disconnecting from the AP if it's a station.'''
@@ -160,6 +170,7 @@ class __Network:
 		mac = list(ap_if.config("mac"))
 		return "VINDRIKTNING-" + "%0.2X%0.2X%0.2X" % (mac[3], mac[4], mac[5])
 
+
 	def __init__(self, config:__Config) -> None:
 		ap_essid = __Network.build_ap_essid()
 		ap_config = config.get("network.ap")
@@ -167,15 +178,18 @@ class __Network:
 		station_config = config.get("network.station")
 		self.__station = __WLAN(network.STA_IF, station_config["ssid"], station_config["key"]) if station_config else None
 
+
 	@property
 	def ap(self):
 		'''Returns the AP agent.'''
 		return self.__ap
 
+
 	@property
 	def station(self):
 		'''Returns the station agent.'''
 		return self.__station
+
 
 	def start(self) -> None:
 		'''Starts the network functionality.'''
@@ -183,6 +197,7 @@ class __Network:
 			self.__ap.start()
 		if self.__station:
 			self.__station.start()
+
 
 	def stop(self) -> None:
 		'''Stops the network functionality.'''
@@ -200,20 +215,24 @@ class System:
 		self.__network = __Network(self.__config)
 		self.__time = __Time(self.__config)
 
+
 	@property
 	def device_id(self) -> str:
 		'''Returns the unique device identifier.'''
 		return self.network.ap.ssid
+
 
 	@property
 	def config(self) -> __Config:
 		'''Returns the configuration agent.'''
 		return self.__config
 
+
 	@property
 	def time(self) -> __Time:
 		'''Returns the data/time agent.'''
 		return self.__time
+
 
 	@property
 	def network(self) -> __Network:
