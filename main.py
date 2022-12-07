@@ -1,66 +1,65 @@
-'''Start-up things like WiFi and stuff.'''
+'''Starts-up things like WiFi and stuff.'''
 
 __author__ = "Arménio Pinto"
 __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
 __license__ = "MIT License"
 
-import utime
-from machine import SoftUART, Pin
-
 import logging
 logger = logging.getLogger(__name__)
+
+import utime
+from machine import SoftUART, Pin
 
 from system import System
 from homie import Network, Device, DeviceState, Node, Property
 
 
-class Publisher:
+class __Publisher:
 	'''A publisher for the sensor values.'''
 
 	def __init__(self, system:System) -> None:
 		self.__device_id = system.device_id
 		self.__broker_address = system.config.get("mqtt.broker.host_address")
-		self.__broker_port = system.config.get("mqtt.broker.port")
-		if not self.__broker_port:
-			self.__broker_port = 1883
-		try:
-			self.__connect()
-		except ConnectionError as ce:
-			logger.warn(ce)
+		self.__broker_port = system.config.get("mqtt.broker.port", 1883)
+		self.__property = None
+		self.__connect()
 
 
 	def __connect(self) -> None:
-		''':raises ConnectionError: if an error occurs while connecting to the message broker.'''
-		self.__property = None
-		try:
-			network = Network(self.__device_id, self.__broker_address, self.__broker_port)
-			device = Device(network, self.__device_id.lower(), self.__device_id)
-			node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
-			self.__property = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
-			node.add_property(self.__property)
-			device.add_node(node)
-			device.state = DeviceState.INIT
-			device.state = DeviceState.READY
-		except Exception as e:
-			raise ConnectionError("Error connecting to message broker") from e
-
-
-	def publish(self, message:str) -> None:
-		''':raises ConnectionError: if an error occurs while connecting to the message broker.'''
-		if not self.__property:
+		while not self.__property:
 			try:
-				self.__connect()
-			except ConnectionError as ce:
-				logger.warn(ce)
+				network = Network(self.__device_id, self.__broker_address, self.__broker_port)
+				device = Device(network, self.__device_id.lower(), self.__device_id)
+				node = Node(device, "pm1006", "Cubic PM1006", "Air Quality Sensor")
+				self.__property = Property(node, "pm2_5", "Particulate Matter Concentration (PM2.5)", "float", "ug/m3")
+				node.add_property(self.__property)
+				device.add_node(node)
+				device.state = DeviceState.INIT
+				device.state = DeviceState.READY
+			except Exception as e:
+				self.__property = None
+				logger.warning(f"Error connecting to message broker: '{str(e)}'.")
+				utime.sleep_ms(3000)
+
+
+	def publish(self, message:str) -> bool:
+		''':returns: True if the message was successfully publised, otherwise False.'''
+		# If we're "connected" to the message broker...
 		if self.__property:
 			try:
 				self.__property.set_value(message)
+				return True
 			except Exception as e:
-				raise ConnectionError("Error publishing the value") from e
+				logger.warning(f"Error publishing to message broker: '{str(e)}'.")
+				self.__property = None
+		# ... otherwise, we try to establish a new connection.
+		if not self.__property:
+			self.__connect()
+		return False
 
 
-class VindriktningReader:
+class __VindriktningReader:
 	'''A client for the VINDRIKTNING sensor.'''
 
 	# The number of samples in a sensor sampling cycle.
@@ -70,7 +69,7 @@ class VindriktningReader:
 	__CYCLE_TIMEOUT = 4
 
 
-	def __init__(self, system:System, publisher:Publisher) -> None:
+	def __init__(self, system:System, publisher:__Publisher) -> None:
 		self.__system = system
 		self.__publisher = publisher
 
@@ -90,11 +89,14 @@ class VindriktningReader:
 				data = self.__uart.read()
 				if data:
 					self.__handle_sensor_data(data)
+			except Exception as e:
+				logger.warning(f"Error handling sensor data: '{str(e)}'.")
+			try:
 				self.__publish_if_cycle_ended()
 			except Exception as e:
-				logger.warning(f"Error handling sensor data: {str(e)}.")
-			finally:
-				utime.sleep_ms(500)
+				logger.warning(f"Error publishing sensor data: '{str(e)}'.")
+
+			utime.sleep_ms(500)
 		logger.info("Sensor reader stopped.")
 
 
@@ -111,7 +113,7 @@ class VindriktningReader:
 				self.__buffer.append(sample)
 				logger.debug(f"Read data: {sample}.")
 		except ValueError as ve:
-			logger.info(f"Error decoding sensor data: {str(ve)}.")
+			logger.warning(f"Error decoding sensor data: '{str(ve)}'.")
 
 
 	def __decode_sensor_data(self, data:bytes) -> int:
@@ -120,7 +122,7 @@ class VindriktningReader:
 		:param data: the data received from the sensor.
 		:returns: the decoded value.
 		'''
-		# From PM1006_LED_PARTICLE_SENSOR_MODULE_SPECIFICATIONS:
+		# From PM1006_LED_PARTICLE_SENSOR_MODULE_SPECIFICATIONS.pdf:
 		# "Read measures result of particles:
 		# Send: 11 02 0B 01 E1
 		# Response: 16 11 0B DF1 DF4 DF5 DF8 DF9 DF12 DF13 DF14 DF15 DF16[CS]
@@ -161,9 +163,11 @@ class VindriktningReader:
 					value_sum += sample["pm2_5"]
 				value = round(value_sum / nsamples, 1)
 				datetime = self.__system.time.iso_time(last_sample_time)
-				logger.info(f"Publishing {value} ug/m3 at {datetime}.")
-				self.__publisher.publish(str(value))
-				buffer.clear()
+				try:
+					if self.__publisher.publish(str(value)):
+						logger.info(f"Published {value} ug/m3 at {datetime}.")
+				finally:
+					buffer.clear()
 
 
 	def stop(self):
@@ -174,8 +178,8 @@ class VindriktningReader:
 
 def main():
 	system = System()
-	publisher = Publisher(system)
-	vind_reader = VindriktningReader(system, publisher)
+	publisher = __Publisher(system)
+	vind_reader = __VindriktningReader(system, publisher)
 	vind_reader.start()
 
 
