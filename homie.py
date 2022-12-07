@@ -5,10 +5,10 @@ __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
 __license__ = "MIT License"
 
-from umqtt.robust import MQTTClient
-
 import logging
 logger = logging.getLogger(__name__)
+
+from umqtt.simple import MQTTClient
 
 
 class HomieThing:

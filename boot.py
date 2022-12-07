@@ -5,11 +5,11 @@ __email__ = "github.com/armeniopinto"
 __copyright__ = "Copyright (C) 2022 by Arménio Pinto"
 __license__ = "MIT License"
 
-from machine import Pin
-
 import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+from machine import Pin
 
 from system import System
 
